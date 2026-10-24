@@ -1,0 +1,17 @@
+# One handle per line, no @. Posts from these accounts skip the follower and velocity filters.
+# EDIT ME: the accounts whose threads you want to be early in.
+claudeai
+claudedevs
+anthropicai
+alexalbert__
+testingcatalog
+rowancheung
+_akhaliq
+simonw
+swyx
+levelsio
+mckaywrigley
+officiallogank
+openaidevs
+xai
+n8n_io

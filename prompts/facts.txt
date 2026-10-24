@@ -1,0 +1,6 @@
+== FACTS (the only source for claims about the owner; keep it short and literally true) ==
+EDIT ME: what you build, what you use every day, numbers you are happy to say in public.
+The writers never claim anything about you that is not on this list.
+
+- (example) builds small web tools solo, posts the process on X
+- (example) uses Claude Code and Grok Build daily, runs automations in n8n on a home PC

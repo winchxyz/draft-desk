@@ -1,0 +1,192 @@
+{
+  "name": "Draft Desk - learn: inbox",
+  "nodes": [
+    {
+      "id": "05118931-29ad-4d8c-8af6-ab4e80320891",
+      "name": "Every 2 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/2 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        -90
+      ]
+    },
+    {
+      "id": "9655c366-e0ba-4147-96c5-ed69df524ecb",
+      "name": "Run by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        0,
+        90
+      ]
+    },
+    {
+      "id": "f87a621c-8cbc-4cb5-827d-584627c8c29f",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EDIT ME: the folder you unpacked Draft Desk into (forward slashes work on Windows too)\n// and your Telegram chat id (message @userinfobot to get it).\nreturn [{ json: {\n  kit_dir: 'C:/Users/you/draft-desk',\n  chat_id: '123456789',\n} }];\n"
+      },
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "id": "b4d071a4-3973-4fd6-8cf8-aea968b7137a",
+      "name": "collect edits",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/inbox.js\" collect {{ $('config').first().json.chat_id }}"
+      },
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "id": "66ba2953-ceb9-4aa5-b9ee-882c09f233a6",
+      "name": "read status",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/inbox.out.json",
+        "options": {}
+      },
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "id": "cfd71c09-9b4a-4b69-9163-5bd097737192",
+      "name": "parse status",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        920,
+        0
+      ]
+    },
+    {
+      "id": "9c80b86c-f3d8-44cf-867a-d020acae8e90",
+      "name": "check status",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Fail loudly (so the error workflow pings you) when a helper script reported a problem.\nconst out = $input.first().json.data;\nif (!out || !out.ok) throw new Error(`helper failed: ${out ? out.error : 'empty status file'}`);\nreturn [{ json: out }];\n"
+      },
+      "position": [
+        1140,
+        0
+      ]
+    },
+    {
+      "id": "740e8e2f-7fad-4cac-9c45-b20a3438758e",
+      "name": "Read me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ],
+      "parameters": {
+        "content": "## Draft Desk: learning inbox\nEvery 2 minutes: picks up your Telegram replies to the bot's drafts. Reply to a draft with the text you actually posted (add a line `---` and a comment if you want to say why), or with `skip <reason>`. The bot reacts with a thumbs-up when it took the pair.\n\nNeeds secrets/telegram-bot-token.txt.",
+        "height": 220,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Every 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run by hand": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "collect edits",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "collect edits": {
+      "main": [
+        [
+          {
+            "node": "read status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read status": {
+      "main": [
+        [
+          {
+            "node": "parse status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse status": {
+      "main": [
+        [
+          {
+            "node": "check status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

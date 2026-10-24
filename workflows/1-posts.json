@@ -1,0 +1,552 @@
+{
+  "name": "Draft Desk - posts",
+  "nodes": [
+    {
+      "id": "96f12eb6-d8e5-45c0-8775-d906c8509b18",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,13,18 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        -180
+      ]
+    },
+    {
+      "id": "9a555dee-5bf6-4f4d-8bed-eb3dc46ab6a4",
+      "name": "Run now (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "89880ac5-d14f-453f-85df-1e6429c49bc4",
+      "parameters": {
+        "path": "draft-desk-posts",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "bdc2eb24-1ed4-47dd-907e-13e9865ef778",
+      "name": "Run by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "id": "4ff8abc3-1c7f-433d-b3ba-b2fb92d83431",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EDIT ME: the folder you unpacked Draft Desk into (forward slashes work on Windows too)\n// and your Telegram chat id (message @userinfobot to get it).\nreturn [{ json: {\n  kit_dir: 'C:/Users/you/draft-desk',\n  chat_id: '123456789',\n} }];\n"
+      },
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "id": "b789ad48-17bc-40c6-92f8-9d64d0a38ce1",
+      "name": "Grok: research",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/ask.js\" research"
+      },
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "id": "97951d7f-cc1f-476d-b3ed-b50d8160e0ab",
+      "name": "read research",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/research.out.json",
+        "options": {}
+      },
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "id": "21374854-7f4a-482a-8e2d-7a233d8032d3",
+      "name": "parse research",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        920,
+        0
+      ]
+    },
+    {
+      "id": "9cc0b12e-a286-4c1d-a12d-90185b3446ac",
+      "name": "gate topics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Shared: read the answer file that scripts/ask.js wrote (Extract From File puts it under .data).\nfunction answer(step) {\n  const out = $input.first().json.data;\n  if (!out) throw new Error(`${step}: answer file was empty`);\n  if (!out.ok) throw new Error(`${step}: ${out.error} ${String(out.stderr || out.stdout || out.text || '').slice(0, 400)}`);\n  return out;\n}\n\n// Keep only topics that cite at least two real URLs, one of them a post on X. Grok is told the same,\n// this is the check that it listened.\nconst out = answer('research');\nconst isX = (u) => /(^|\\/\\/|\\.)(x|twitter)\\.com\\//.test(String(u));\nconst slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');\nreturn (out.data.topics || [])\n  .filter((t) => t && t.slug && Array.isArray(t.urls) && t.urls.length >= 2 && t.urls.some(isX))\n  .map((t) => ({ json: { ...t, slug: slug(t.slug) } }));\n"
+      },
+      "position": [
+        1140,
+        0
+      ]
+    },
+    {
+      "id": "94d50679-e94f-4ec3-b80b-f8d3cf7f9c5f",
+      "name": "dedupe topics",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "logic": "removeItemsWithAlreadySeenKeyValues",
+        "dedupeValue": "={{ $json.slug }}",
+        "options": {
+          "scope": "node"
+        }
+      },
+      "position": [
+        1360,
+        0
+      ]
+    },
+    {
+      "id": "7e818f57-be4a-4f59-9c22-0b0811526360",
+      "name": "pack research",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// All fresh topics into one JSON text for the writer's input file.\nconst topics = $input.all().map((i) => i.json);\nreturn [{ json: { text: JSON.stringify({ topics }, null, 1), count: topics.length } }];\n"
+      },
+      "position": [
+        1580,
+        0
+      ]
+    },
+    {
+      "id": "c714f55f-693f-413e-8acc-05fdaf6ad46b",
+      "name": "research to text",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "text",
+        "options": {}
+      },
+      "position": [
+        1800,
+        0
+      ]
+    },
+    {
+      "id": "c8d8799b-e57f-4e5e-bc9c-2598802541f6",
+      "name": "save writer input",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('config').first().json.kit_dir }}/work/research.in.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "position": [
+        2020,
+        0
+      ]
+    },
+    {
+      "id": "510726e9-1fb5-4927-9e7c-c58fdb370f53",
+      "name": "Claude Code: write posts",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/ask.js\" write-posts"
+      },
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "id": "4a117c35-835b-4165-a78b-0699c89c2c96",
+      "name": "read drafts",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/posts.out.json",
+        "options": {}
+      },
+      "position": [
+        2460,
+        0
+      ]
+    },
+    {
+      "id": "1715845f-893a-4802-a475-54d3ba28778d",
+      "name": "parse drafts",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        2680,
+        0
+      ]
+    },
+    {
+      "id": "d65db2b3-30ef-48e7-83e6-23f799bdf917",
+      "name": "format drafts",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Shared: read the answer file that scripts/ask.js wrote (Extract From File puts it under .data).\nfunction answer(step) {\n  const out = $input.first().json.data;\n  if (!out) throw new Error(`${step}: answer file was empty`);\n  if (!out.ok) throw new Error(`${step}: ${out.error} ${String(out.stderr || out.stdout || out.text || '').slice(0, 400)}`);\n  return out;\n}\n\n// Shared by the Code nodes that format Telegram messages (inlined by tools/build.js).\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst BANNED = ['delve', 'leverage', 'robust', 'seamless', 'pivotal', 'foster', 'intricate', 'multifaceted',\n  'navigate', 'elevate', 'unlock', 'supercharge', 'game-changer', 'revolutionize'];\n// Cheap last line of defence: flags what the voice rules ban, so you see it before you post.\nfunction lint(t) {\n  const flags = [];\n  if (/—/.test(t)) flags.push('em-dash');\n  if (/[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u.test(t)) flags.push('emoji');\n  if (/(^|\\s)#\\w/.test(t)) flags.push('hashtag');\n  if (t.length > 280) flags.push(`${t.length} chars`);\n  for (const w of BANNED) if (new RegExp(`\\\\b${w}\\\\b`, 'i').test(t)) flags.push(w);\n  return flags;\n}\n// X web intent: opens the composer with the text filled in. You still press Post yourself.\nconst intent = (text, replyTo) =>\n  'https://x.com/intent/tweet?' + (replyTo ? `in_reply_to=${replyTo}&` : '') + 'text=' + encodeURIComponent(text);\n\n// One Telegram message per draft, so you can reply to the exact draft you posted (that is how the\n// learning loop pairs your edit with our text). Buttons open X with the draft filled in.\nconst out = answer('writer');\nconst posts = out.data.posts || [];\nconst msgs = [];\nfor (const p of posts) {\n  const drafts = (p.drafts || []).map((d) => (typeof d === 'string' ? d : d.text)).filter(Boolean);\n  drafts.forEach((text, i) => {\n    const flags = lint(text);\n    let t = `#post <b>${esc(p.label || 'post')}</b> · draft ${i + 1}/${drafts.length}`;\n    t += `\\n\\n<blockquote>${esc(text)}</blockquote>`;\n    if (flags.length) t += `\\nlint: ${esc(flags.join(', '))}`;\n    if (p.media_hint) t += `\\nmedia: ${esc(p.media_hint)}`;\n    msgs.push({ json: { text: t.slice(0, 3900), post_url: intent(text), source_url: p.source_url || 'https://x.com' } });\n  });\n}\nif (!msgs.length && out.data.skipped_reason) {\n  msgs.push({ json: { text: `#post nothing worth posting this run\\n${esc(out.data.skipped_reason)}`, post_url: 'https://x.com', source_url: 'https://x.com' } });\n}\nreturn msgs;\n"
+      },
+      "position": [
+        2900,
+        0
+      ]
+    },
+    {
+      "id": "7aef525d-0efb-4310-9cc3-8c2a00f7dfdd",
+      "name": "deliver one by one",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "id": "eb2c2e98-8f82-4aca-ba62-01ce2257da31",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('config').first().json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "Post on X",
+                    "additionalFields": {
+                      "url": "={{ $json.post_url }}"
+                    }
+                  },
+                  {
+                    "text": "Source",
+                    "additionalFields": {
+                      "url": "={{ $json.source_url }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "noLinkFromPrev": true,
+      "position": [
+        3340,
+        0
+      ]
+    },
+    {
+      "id": "cfd28043-8e34-4d98-ac8d-ae4888375fea",
+      "name": "pause",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "webhookId": "e0b1b9ad-8575-43df-8123-e02767ffade1",
+      "parameters": {
+        "amount": 1.2,
+        "unit": "seconds"
+      },
+      "position": [
+        3560,
+        0
+      ]
+    },
+    {
+      "id": "e2d9574b-f7ea-493d-ad97-fc0682a602cc",
+      "name": "Read me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ],
+      "parameters": {
+        "content": "## Draft Desk: posts\nGrok scans X for what started in the last 3 hours, Claude Code edits it down and writes drafts in your voice, Telegram brings them to you with a button that opens X with the draft filled in.\n\n1. Edit the **config** node.\n2. Pick your Telegram credential in the **Telegram** node.\n3. Test with **Run by hand**, then activate.",
+        "height": 220,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (webhook)": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run by hand": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Grok: research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grok: research": {
+      "main": [
+        [
+          {
+            "node": "read research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read research": {
+      "main": [
+        [
+          {
+            "node": "parse research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse research": {
+      "main": [
+        [
+          {
+            "node": "gate topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gate topics": {
+      "main": [
+        [
+          {
+            "node": "dedupe topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dedupe topics": {
+      "main": [
+        [
+          {
+            "node": "pack research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pack research": {
+      "main": [
+        [
+          {
+            "node": "research to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "research to text": {
+      "main": [
+        [
+          {
+            "node": "save writer input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save writer input": {
+      "main": [
+        [
+          {
+            "node": "Claude Code: write posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Code: write posts": {
+      "main": [
+        [
+          {
+            "node": "read drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read drafts": {
+      "main": [
+        [
+          {
+            "node": "parse drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse drafts": {
+      "main": [
+        [
+          {
+            "node": "format drafts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format drafts": {
+      "main": [
+        [
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "pause",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deliver one by one": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pause": {
+      "main": [
+        [
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

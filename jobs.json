@@ -1,0 +1,36 @@
+{
+  "research": {
+    "cli": "grok",
+    "context": "Now: {now}. FRESHNESS WINDOW for this run: ONLY the last 3 hours.",
+    "files": ["prompts/research.txt"],
+    "out": "work/research.out.json"
+  },
+  "write-posts": {
+    "cli": "claude",
+    "model": "sonnet",
+    "context": "Now: {now}.",
+    "files": ["prompts/write-posts.txt", "prompts/voice.txt", "prompts/facts.txt", "prompts/lessons.txt", "work/research.in.json"],
+    "out": "work/posts.out.json"
+  },
+  "scout": {
+    "cli": "grok",
+    "context": "Now: {now}. Look ONLY at posts from the last 90 minutes.",
+    "files": ["prompts/scout.txt", "prompts/watchlist.txt"],
+    "attach": ["prompts/watchlist.txt"],
+    "out": "work/scout.out.json"
+  },
+  "write-replies": {
+    "cli": "claude",
+    "model": "sonnet",
+    "context": "Now: {now}.",
+    "files": ["prompts/write-replies.txt", "prompts/voice.txt", "prompts/facts.txt", "prompts/lessons.txt", "work/candidates.in.json"],
+    "out": "work/replies.out.json"
+  },
+  "analyst": {
+    "cli": "claude",
+    "model": "opus",
+    "context": "Now: {now}.",
+    "files": ["prompts/analyst.txt", "prompts/facts.txt", "prompts/lessons.txt", "work/pairs.in.txt"],
+    "out": "work/analyst.out.json"
+  }
+}

@@ -1,0 +1,580 @@
+{
+  "name": "Draft Desk - replies",
+  "nodes": [
+    {
+      "id": "ba889b9c-7e00-4f83-9a3d-ea35d7befdac",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        -180
+      ]
+    },
+    {
+      "id": "8464eaef-65a1-4814-ab06-b38810076695",
+      "name": "Run now (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "468da90e-b872-40c3-9c20-fa587387f7db",
+      "parameters": {
+        "path": "draft-desk-replies",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "78c32588-4903-45c8-a02c-ca46dbe1a4d7",
+      "name": "Run by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "id": "d4f4d312-6362-4822-b5de-04237d540ae8",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EDIT ME: the folder you unpacked Draft Desk into (forward slashes work on Windows too),\n// your Telegram chat id (message @userinfobot to get it), and the reply filters.\nreturn [{ json: {\n  kit_dir: 'C:/Users/you/draft-desk',\n  chat_id: '123456789',\n  min_followers: 20000, // accounts outside the watchlist need at least this many followers\n  min_velocity: 60, // and their post needs at least this many likes per hour\n  max_age_hours: 3, // a reply under an older post earns almost nothing\n} }];\n"
+      },
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "id": "f427b21e-e2da-46d9-93a0-33c1ded95fe4",
+      "name": "Grok: scout",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/ask.js\" scout"
+      },
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "id": "dca0a9ec-ab14-4ecf-b57e-d581c27df363",
+      "name": "read scout",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/scout.out.json",
+        "options": {}
+      },
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "id": "1409dcdd-4690-480f-937c-f39ad7706eb2",
+      "name": "parse scout",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        920,
+        0
+      ]
+    },
+    {
+      "id": "ea035fe6-bc35-4e05-bc73-fefca02cd62c",
+      "name": "gate candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Shared: read the answer file that scripts/ask.js wrote (Extract From File puts it under .data).\nfunction answer(step) {\n  const out = $input.first().json.data;\n  if (!out) throw new Error(`${step}: answer file was empty`);\n  if (!out.ok) throw new Error(`${step}: ${out.error} ${String(out.stderr || out.stdout || out.text || '').slice(0, 400)}`);\n  return out;\n}\n\n// Drop what the scout should not have sent: bad URLs, replies, small accounts outside the watchlist.\n// Then build the free public embed URL that returns the post's real text and like count, so nothing\n// the scout claimed reaches the writer unchecked.\nconst out = answer('scout');\nconst cfg = $('config').first().json;\nconst watch = new Set(String(out.attach.watchlist || '').split(/\\r?\\n/)\n  .map((l) => l.replace(/#.*/, '').trim().replace(/^@/, '').toLowerCase()).filter(Boolean));\nconst items = [];\nfor (const c of out.data.candidates || []) {\n  const m = /x\\.com\\/([A-Za-z0-9_]+)\\/status\\/(\\d+)/.exec(String(c.tweet_url || ''));\n  if (!m || c.is_reply === true) continue;\n  const handle = m[1].toLowerCase();\n  const inWatchlist = watch.has(handle);\n  if (!inWatchlist && (Number(c.author_followers_approx) || 0) < cfg.min_followers) continue;\n  const id = m[2];\n  // Same token the public embed widget computes for itself.\n  const token = ((Number(id) / 1e15) * Math.PI).toString(36).replace(/(0+|\\.)/g, '');\n  items.push({ json: {\n    tweet_url: `https://x.com/${m[1]}/status/${id}`, handle, tweet_id: id, in_watchlist: inWatchlist,\n    why_hot: c.why_hot || '',\n    verify_url: `https://cdn.syndication.twimg.com/tweet-result?id=${id}&lang=en&token=${token}`,\n  } });\n}\nreturn items;\n"
+      },
+      "position": [
+        1140,
+        0
+      ]
+    },
+    {
+      "id": "4dae5da7-ca63-4c9d-b511-bbb11bf0e8df",
+      "name": "dedupe posts",
+      "type": "n8n-nodes-base.removeDuplicates",
+      "typeVersion": 2,
+      "parameters": {
+        "operation": "removeItemsSeenInPreviousExecutions",
+        "logic": "removeItemsWithAlreadySeenKeyValues",
+        "dedupeValue": "={{ $json.tweet_id }}",
+        "options": {
+          "scope": "node"
+        }
+      },
+      "position": [
+        1360,
+        0
+      ]
+    },
+    {
+      "id": "b530b293-d128-409c-9301-81048db465f5",
+      "name": "verify on X",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "url": "={{ $json.verify_url }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "position": [
+        1580,
+        0
+      ]
+    },
+    {
+      "id": "124ff221-6b62-4437-9c0d-ea214375f469",
+      "name": "assemble candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Pair every candidate with its live embed data (same order as the HTTP node's input), keep only\n// real top-level posts that are young and climbing, and hand their verbatim text to the writer.\nconst cfg = $('config').first().json;\nconst claims = $('dedupe posts').all().map((i) => i.json);\nconst live = $input.all().map((i) => i.json);\nconst cands = [];\nclaims.forEach((claim, i) => {\n  const r = live[i] || {};\n  if (!r.text || !r.user) return; // deleted, protected or not found\n  if (String(r.user.screen_name || '').toLowerCase() !== claim.handle) return;\n  if (r.parent || r.in_reply_to_status_id_str || r.in_reply_to_screen_name) return; // a reply after all\n  const likes = r.favorite_count || 0;\n  const ageHours = r.created_at ? (Date.now() - new Date(r.created_at).getTime()) / 3600000 : null;\n  if (ageHours !== null && ageHours > cfg.max_age_hours) return;\n  const velocity = ageHours && ageHours > 0.05 ? Math.round(likes / ageHours) : null;\n  if (!claim.in_watchlist && velocity !== null && velocity < cfg.min_velocity) return;\n  cands.push({\n    tweet_url: claim.tweet_url, tweet_id: claim.tweet_id, author: r.user.screen_name,\n    in_watchlist: claim.in_watchlist, likes_verified: likes, likes_per_hour: velocity,\n    minutes_old: ageHours === null ? null : Math.round(ageHours * 60),\n    text_verbatim: String(r.text).slice(0, 600), why_hot: claim.why_hot,\n  });\n});\nif (!cands.length) return []; // quiet half hour: stop here, send nothing\nreturn [{ json: { text: JSON.stringify({ candidates: cands }, null, 1), candidates: cands } }];\n"
+      },
+      "position": [
+        1800,
+        0
+      ]
+    },
+    {
+      "id": "136d6d00-5a24-41bd-96f5-aff8a49407fe",
+      "name": "candidates to text",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "text",
+        "options": {}
+      },
+      "position": [
+        2020,
+        0
+      ]
+    },
+    {
+      "id": "e13c2df1-1f15-4a1c-98cd-10a62283be6e",
+      "name": "save writer input",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('config').first().json.kit_dir }}/work/candidates.in.json",
+        "dataPropertyName": "data",
+        "options": {}
+      },
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "id": "0ca2cd68-907a-40ce-af53-c07d7a8db3e8",
+      "name": "Claude Code: write replies",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/ask.js\" write-replies"
+      },
+      "position": [
+        2460,
+        0
+      ]
+    },
+    {
+      "id": "011c3cc1-43f0-4c38-8d54-9417b7e31625",
+      "name": "read replies",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/replies.out.json",
+        "options": {}
+      },
+      "position": [
+        2680,
+        0
+      ]
+    },
+    {
+      "id": "18d6336f-14aa-4337-b093-527717f23f51",
+      "name": "parse replies",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        2900,
+        0
+      ]
+    },
+    {
+      "id": "375d1c04-7a0f-444d-804e-5fca527f7a59",
+      "name": "format replies",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Shared: read the answer file that scripts/ask.js wrote (Extract From File puts it under .data).\nfunction answer(step) {\n  const out = $input.first().json.data;\n  if (!out) throw new Error(`${step}: answer file was empty`);\n  if (!out.ok) throw new Error(`${step}: ${out.error} ${String(out.stderr || out.stdout || out.text || '').slice(0, 400)}`);\n  return out;\n}\n\n// Shared by the Code nodes that format Telegram messages (inlined by tools/build.js).\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst BANNED = ['delve', 'leverage', 'robust', 'seamless', 'pivotal', 'foster', 'intricate', 'multifaceted',\n  'navigate', 'elevate', 'unlock', 'supercharge', 'game-changer', 'revolutionize'];\n// Cheap last line of defence: flags what the voice rules ban, so you see it before you post.\nfunction lint(t) {\n  const flags = [];\n  if (/—/.test(t)) flags.push('em-dash');\n  if (/[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u.test(t)) flags.push('emoji');\n  if (/(^|\\s)#\\w/.test(t)) flags.push('hashtag');\n  if (t.length > 280) flags.push(`${t.length} chars`);\n  for (const w of BANNED) if (new RegExp(`\\\\b${w}\\\\b`, 'i').test(t)) flags.push(w);\n  return flags;\n}\n// X web intent: opens the composer with the text filled in. You still press Post yourself.\nconst intent = (text, replyTo) =>\n  'https://x.com/intent/tweet?' + (replyTo ? `in_reply_to=${replyTo}&` : '') + 'text=' + encodeURIComponent(text);\n\n// One Telegram message per reply draft. \"Reply on X\" opens the X composer as a reply to that post\n// with the draft filled in; you read it, fix it, press Reply. Nothing is posted by the pipeline.\nconst out = answer('reply writer');\nconst cands = $('assemble candidates').first().json.candidates;\nconst msgs = [];\nfor (const r of out.data.replies || []) {\n  const target = String(r.target_url || '');\n  const c = cands.find((x) => x.tweet_url === target || target.endsWith(`/status/${x.tweet_id}`));\n  if (!c || !r.text) continue; // never deliver a reply to a post we did not verify\n  const flags = lint(r.text);\n  let t = `#reply <b>@${esc(c.author)}</b>`;\n  t += c.likes_per_hour ? ` · ${c.likes_per_hour} likes/h` : ` · ${c.likes_verified} likes`;\n  if (c.minutes_old !== null) t += ` · ${c.minutes_old} min old`;\n  t += `\\n<i>${esc(c.text_verbatim.slice(0, 200))}</i>`;\n  t += `\\n\\n<blockquote>${esc(r.text)}</blockquote>`;\n  t += `\\n${esc(r.type || '')}${r.why ? ': ' + esc(r.why) : ''}`;\n  if (flags.length) t += `\\nlint: ${esc(flags.join(', '))}`;\n  msgs.push({ json: { text: t.slice(0, 3900), reply_url: intent(r.text, c.tweet_id), post_url: c.tweet_url } });\n}\nreturn msgs;\n"
+      },
+      "position": [
+        3120,
+        0
+      ]
+    },
+    {
+      "id": "172e2498-c983-4833-a15c-8cbf65e2cb53",
+      "name": "deliver one by one",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "position": [
+        3340,
+        0
+      ]
+    },
+    {
+      "id": "21aa7a49-5714-4287-aaf1-abac973a5fa3",
+      "name": "Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('config').first().json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "Reply on X",
+                    "additionalFields": {
+                      "url": "={{ $json.reply_url }}"
+                    }
+                  },
+                  {
+                    "text": "Open post",
+                    "additionalFields": {
+                      "url": "={{ $json.post_url }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "noLinkFromPrev": true,
+      "position": [
+        3560,
+        0
+      ]
+    },
+    {
+      "id": "15254753-9b5d-49b9-98ae-264c85fe03b3",
+      "name": "pause",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "webhookId": "23a3dfbc-0f8c-4adb-aa7b-747b2860b3b4",
+      "parameters": {
+        "amount": 1.2,
+        "unit": "seconds"
+      },
+      "position": [
+        3780,
+        0
+      ]
+    },
+    {
+      "id": "c6bc078b-a676-4b13-a757-24e1a1794ceb",
+      "name": "Read me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ],
+      "parameters": {
+        "content": "## Draft Desk: replies\nEvery 15 minutes Grok looks for fresh, rising posts. Each one is checked against X's public embed data (real text, real likes, real age). Claude Code writes 0-2 replies; Telegram gives you a **Reply on X** button. The pipeline never posts: since 23 Feb 2026 the X API refuses replies to posts that did not mention you.\n\n1. Edit **config**.\n2. Pick your Telegram credential.\n3. Edit prompts/watchlist.txt.",
+        "height": 220,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (webhook)": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run by hand": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "Grok: scout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grok: scout": {
+      "main": [
+        [
+          {
+            "node": "read scout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read scout": {
+      "main": [
+        [
+          {
+            "node": "parse scout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse scout": {
+      "main": [
+        [
+          {
+            "node": "gate candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "gate candidates": {
+      "main": [
+        [
+          {
+            "node": "dedupe posts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "dedupe posts": {
+      "main": [
+        [
+          {
+            "node": "verify on X",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verify on X": {
+      "main": [
+        [
+          {
+            "node": "assemble candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "assemble candidates": {
+      "main": [
+        [
+          {
+            "node": "candidates to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "candidates to text": {
+      "main": [
+        [
+          {
+            "node": "save writer input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "save writer input": {
+      "main": [
+        [
+          {
+            "node": "Claude Code: write replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Code: write replies": {
+      "main": [
+        [
+          {
+            "node": "read replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read replies": {
+      "main": [
+        [
+          {
+            "node": "parse replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse replies": {
+      "main": [
+        [
+          {
+            "node": "format replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format replies": {
+      "main": [
+        [
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "pause",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "deliver one by one": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "pause": {
+      "main": [
+        [
+          {
+            "node": "deliver one by one",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

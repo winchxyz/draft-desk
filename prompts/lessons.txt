@@ -1,0 +1,15 @@
+== LESSONS (learned from the owner's real edits; the analyst appends new ones below, newest last) ==
+
+LESSON: Replies that earn engagement are substance: a concrete mechanism, a reframe, or a take with
+its reason. Congratulations and "interesting to see" replies get nothing and burn the account's reach.
+
+LESSON: When the real payload of a reply is a question to the author, post the question alone. Cut
+the setup and every extra angle.
+
+LESSON: Answer "why not X" with a concrete alternative and its publicly checkable advantages
+(pricing, caching, retries), never with a general complaint.
+
+LESSON: When someone failed, lead with the neutral mechanism that explains it. No dunks, no doom.
+
+LESSON: Do not repeat the author's own hype numbers back at them. Acknowledge in two words, then use
+their own term when you ask the question.

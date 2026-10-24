@@ -1,0 +1,409 @@
+{
+  "name": "Draft Desk - learn: daily",
+  "nodes": [
+    {
+      "id": "2695101c-0110-4fa9-810d-7e4350d02580",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 8 * * *"
+            }
+          ]
+        }
+      },
+      "position": [
+        0,
+        -180
+      ]
+    },
+    {
+      "id": "ac22ebf0-29c6-4dd1-b6bb-3a33f8fa267f",
+      "name": "Run now (webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "webhookId": "6462e5a8-6fa9-4e1c-8864-00d8e615c6b1",
+      "parameters": {
+        "path": "draft-desk-learn",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "id": "017f8141-bd6a-4a6e-b890-bf4062e0d8dc",
+      "name": "Run by hand",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "parameters": {},
+      "position": [
+        0,
+        180
+      ]
+    },
+    {
+      "id": "bb527793-6623-4b6f-a395-0309b05fde83",
+      "name": "config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// EDIT ME: the folder you unpacked Draft Desk into (forward slashes work on Windows too)\n// and your Telegram chat id (message @userinfobot to get it).\nreturn [{ json: {\n  kit_dir: 'C:/Users/you/draft-desk',\n  chat_id: '123456789',\n} }];\n"
+      },
+      "position": [
+        260,
+        0
+      ]
+    },
+    {
+      "id": "d5cf2419-b18c-4840-b52b-55b5537d8095",
+      "name": "take pairs",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/inbox.js\" take"
+      },
+      "position": [
+        480,
+        0
+      ]
+    },
+    {
+      "id": "30cc722e-ea2d-431f-b954-9019485812ab",
+      "name": "read take",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/take.out.json",
+        "options": {}
+      },
+      "position": [
+        700,
+        0
+      ]
+    },
+    {
+      "id": "a53e99a4-10bc-4494-88d0-60d05b6d028a",
+      "name": "parse take",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        920,
+        0
+      ]
+    },
+    {
+      "id": "0893f2f8-78bf-42c8-a030-ff012620b70a",
+      "name": "any pairs?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Stop quietly on days you did not reply to any draft.\nconst out = $input.first().json.data;\nif (!out || !out.ok) throw new Error(`taking pairs failed: ${out ? out.error : 'empty status file'}`);\nreturn out.count > 0 ? [{ json: { count: out.count } }] : [];\n"
+      },
+      "position": [
+        1140,
+        0
+      ]
+    },
+    {
+      "id": "615aa5c3-5716-4d79-872b-d064495e2f2d",
+      "name": "Claude Code: analyst",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "parameters": {
+        "executeOnce": true,
+        "command": "=node \"{{ $('config').first().json.kit_dir }}/scripts/ask.js\" analyst"
+      },
+      "position": [
+        1360,
+        0
+      ]
+    },
+    {
+      "id": "3d4e5137-b6ef-4e66-a056-791fb0bfefee",
+      "name": "read analysis",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "read",
+        "fileSelector": "={{ $('config').first().json.kit_dir }}/work/analyst.out.json",
+        "options": {}
+      },
+      "position": [
+        1580,
+        0
+      ]
+    },
+    {
+      "id": "c6756d38-bc58-41d2-bc0d-2cc56c298057",
+      "name": "parse analysis",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "position": [
+        1800,
+        0
+      ]
+    },
+    {
+      "id": "3fe49fce-6b72-4f27-a47e-ddedb4058b53",
+      "name": "apply lessons",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "parameters": {
+        "jsCode": "// Shared: read the answer file that scripts/ask.js wrote (Extract From File puts it under .data).\nfunction answer(step) {\n  const out = $input.first().json.data;\n  if (!out) throw new Error(`${step}: answer file was empty`);\n  if (!out.ok) throw new Error(`${step}: ${out.error} ${String(out.stderr || out.stdout || out.text || '').slice(0, 400)}`);\n  return out;\n}\n\n// Shared by the Code nodes that format Telegram messages (inlined by tools/build.js).\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst BANNED = ['delve', 'leverage', 'robust', 'seamless', 'pivotal', 'foster', 'intricate', 'multifaceted',\n  'navigate', 'elevate', 'unlock', 'supercharge', 'game-changer', 'revolutionize'];\n// Cheap last line of defence: flags what the voice rules ban, so you see it before you post.\nfunction lint(t) {\n  const flags = [];\n  if (/—/.test(t)) flags.push('em-dash');\n  if (/[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u.test(t)) flags.push('emoji');\n  if (/(^|\\s)#\\w/.test(t)) flags.push('hashtag');\n  if (t.length > 280) flags.push(`${t.length} chars`);\n  for (const w of BANNED) if (new RegExp(`\\\\b${w}\\\\b`, 'i').test(t)) flags.push(w);\n  return flags;\n}\n// X web intent: opens the composer with the text filled in. You still press Post yourself.\nconst intent = (text, replyTo) =>\n  'https://x.com/intent/tweet?' + (replyTo ? `in_reply_to=${replyTo}&` : '') + 'text=' + encodeURIComponent(text);\n\n// Turn the analyst's answer into lines appended to prompts/lessons.txt (every writer reads that file\n// on its next run) and a short digest for you in Telegram.\nconst out = answer('analyst');\nconst lessons = out.data.lessons || [];\nlet block = '';\nfor (const l of lessons) {\n  block += `\\nLESSON: ${l.rule}\\nBEFORE (our draft): ${l.before}\\nAFTER (owner's version): ${l.after}\\n`;\n}\nlet digest = `#learned <b>${lessons.length} new lesson${lessons.length === 1 ? '' : 's'} from your edits</b>\\n${esc(out.data.summary || '')}`;\nif (lessons.length) digest += '\\n\\n' + lessons.map((l, i) => `${i + 1}. ${esc(l.rule)}`).join('\\n');\nconst facts = out.data.proposed_facts || [];\nif (facts.length) digest += '\\n\\n<b>Add to facts.txt if true:</b>\\n' + facts.map((f) => `- ${esc(f)}`).join('\\n');\nreturn [{ json: { text: block || '\\n', digest: digest.slice(0, 3900), lessons: lessons.length } }];\n"
+      },
+      "position": [
+        2020,
+        0
+      ]
+    },
+    {
+      "id": "8e70b1c4-cfc2-4f66-a5ff-7f975093a343",
+      "name": "lessons to text",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "text",
+        "options": {}
+      },
+      "position": [
+        2240,
+        0
+      ]
+    },
+    {
+      "id": "47000c40-d0a3-47fc-9c7b-9e05bd185284",
+      "name": "append to lessons.txt",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "parameters": {
+        "operation": "write",
+        "fileName": "={{ $('config').first().json.kit_dir }}/prompts/lessons.txt",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      },
+      "position": [
+        2460,
+        0
+      ]
+    },
+    {
+      "id": "0a7b0cfb-939d-40e3-b946-8203e51b5f6a",
+      "name": "Telegram digest",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "parameters": {
+        "resource": "message",
+        "operation": "sendMessage",
+        "chatId": "={{ $('config').first().json.chat_id }}",
+        "text": "={{ $('apply lessons').first().json.digest }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "HTML"
+        }
+      },
+      "position": [
+        2680,
+        0
+      ]
+    },
+    {
+      "id": "79ec2f6b-b7e6-4bc0-a612-7a31a27ca659",
+      "name": "Read me",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        -420
+      ],
+      "parameters": {
+        "content": "## Draft Desk: daily lesson\nOnce a day an analyst (Claude Code, Opus) reads yesterday's (draft, your version) pairs, extracts the principles behind your edits and appends them to prompts/lessons.txt. Every writer reads that file, so tomorrow's drafts start closer to how you write.",
+        "height": 220,
+        "width": 520
+      }
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run now (webhook)": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run by hand": {
+      "main": [
+        [
+          {
+            "node": "config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "config": {
+      "main": [
+        [
+          {
+            "node": "take pairs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "take pairs": {
+      "main": [
+        [
+          {
+            "node": "read take",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read take": {
+      "main": [
+        [
+          {
+            "node": "parse take",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse take": {
+      "main": [
+        [
+          {
+            "node": "any pairs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "any pairs?": {
+      "main": [
+        [
+          {
+            "node": "Claude Code: analyst",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude Code: analyst": {
+      "main": [
+        [
+          {
+            "node": "read analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read analysis": {
+      "main": [
+        [
+          {
+            "node": "parse analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "parse analysis": {
+      "main": [
+        [
+          {
+            "node": "apply lessons",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "apply lessons": {
+      "main": [
+        [
+          {
+            "node": "lessons to text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "lessons to text": {
+      "main": [
+        [
+          {
+            "node": "append to lessons.txt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "append to lessons.txt": {
+      "main": [
+        [
+          {
+            "node": "Telegram digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}
